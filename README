@@ -1,0 +1,48 @@
+Read the BASS documentation for functions/useage
+
+All Functions live in the LuaBASS table
+
+All Enums live in a category table specified by the second word of the enum name (example BASS_ERROR_ALREADY is in LuaBASS.ERROR) with the following exceptions:
+
+Two word enums are in MISC
+BASS_OK is in LuaBASS.ERROR
+
+All Enums are doubly keyed (LuaBASS.ERROR.BASS_OK = 0 and LuaBASS.ERROR[0] = "BASS_OK")
+
+All functions take parameters exactly as specified in the BASS documentation and return the bound functions return value and an error code(0 if the function executed ok) excluding the following exceptions:
+
+Init does not take the "win" or "*clsid" parameters and defaults both of these to 0 (this may be changed in the future, or you could change it yourself if you wanted)
+GetDeviceInfo returns the return value, a struct mapped to a table, and then the error code
+GetInfo returns the return value, a struct mapped to a table, and then the error code
+StreamCreateFile does not take the "mem" parameter and defaults this to false
+ChannelSetSync does not take the "*proc" or "*user" and defaults these to the internal SyncDispatcher and the lua state from which the call was made
+
+NOTES:
+
+LuaBASS.SyncCallback is called with the "handle" "channel" and "data" parameters for any Sync Event and can be used to implement your own sync dispatching code, but is by default left empty and does not need to be filled in
+
+
+EXAMPLE:
+
+require("LuaBASS")
+LuaBASS.Init(1,44100,0)
+local Handle = LuaBASS.StreamCreateFile("Z:/Path/To/File.mp3",0,0,LuaBASS.STREAM.BASS_STREAM_PRESCAN)
+local Finished = false
+LuaBASS.SyncCallback = function(...)
+	print("Finished Playing")
+	Finished = true
+end
+local ByteLength = LuaBASS.ChannelGetLength(Handle,LuaBASS.POS.BASS_POS_BYTE)
+local Seconds = math.floor(LuaBASS.ChannelBytes2Seconds(Handle,ByteLength))
+LuaBASS.ChannelSetSync(Handle,2,0) //Sync on the end of playback
+LuaBASS.ChannelPlay(Handle,false)
+print("Playing")
+local LastPos = 0
+repeat //Repeat until the song is finished playing, as BASS is threaded we dont need to do anything here, but the song will stop playing should script execution be allowed to finish
+	local CurPos = math.floor(LuaBASS.ChannelBytes2Seconds(Handle,LuaBASS.ChannelGetPosition(Handle,LuaBASS.POS.BASS_POS_BYTE)))
+	if (CurPos ~= LastPos) then
+		print(os.date("%M:%S",CurPos) .."/".. os.date("%M:%S",Seconds))
+	end
+	LastPos = CurPos
+until Finished
+LuaBASS.Free()
