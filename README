@@ -15,34 +15,13 @@ Init does not take the "win" or "*clsid" parameters and defaults both of these t
 GetDeviceInfo returns the return value, a struct mapped to a table, and then the error code
 GetInfo returns the return value, a struct mapped to a table, and then the error code
 StreamCreateFile does not take the "mem" parameter and defaults this to false
-ChannelSetSync does not take the "*proc" or "*user" and defaults these to the internal SyncDispatcher and the lua state from which the call was made
+ChannelSetSync does not take the "*proc" or "*user"(but may in the future) and defaults these to the internal SyncDispatcher and NULL
 
-NOTES:
+There are a number of helper functions created:
+GetDeviceCount returns the number of devices
+Flags takes all inputs and ORs them together and returns the resulting value
+GetSyncEventList returns a list of sync events since the last time it was called
 
-LuaBASS.SyncCallback is called with the "handle" "channel" and "data" parameters for any Sync Event and can be used to implement your own sync dispatching code, but is by default left empty and does not need to be filled in
-
-
-EXAMPLE:
-
-require("LuaBASS")
-LuaBASS.Init(1,44100,0)
-local Handle = LuaBASS.StreamCreateFile("Z:/Path/To/File.mp3",0,0,LuaBASS.STREAM.BASS_STREAM_PRESCAN)
-local Finished = false
-LuaBASS.SyncCallback = function(...)
-	print("Finished Playing")
-	Finished = true
-end
-local ByteLength = LuaBASS.ChannelGetLength(Handle,LuaBASS.POS.BASS_POS_BYTE)
-local Seconds = math.floor(LuaBASS.ChannelBytes2Seconds(Handle,ByteLength))
-LuaBASS.ChannelSetSync(Handle,2,0) //Sync on the end of playback
-LuaBASS.ChannelPlay(Handle,false)
-print("Playing")
-local LastPos = 0
-repeat //Repeat until the song is finished playing, as BASS is threaded we dont need to do anything here, but the song will stop playing should script execution be allowed to finish
-	local CurPos = math.floor(LuaBASS.ChannelBytes2Seconds(Handle,LuaBASS.ChannelGetPosition(Handle,LuaBASS.POS.BASS_POS_BYTE)))
-	if (CurPos ~= LastPos) then
-		print(os.date("%M:%S",CurPos) .."/".. os.date("%M:%S",Seconds))
-	end
-	LastPos = CurPos
-until Finished
-LuaBASS.Free()
+Todo: 
+parameter error handling
+bind more methods

@@ -21,6 +21,7 @@ extern "C" {
 	#include "lua.h"
 	#include "lauxlib.h"
 }
+
 #define PROJECT_TABLENAME "LuaBASS"
 #ifdef WIN32
 #define LUA_API __declspec(dllexport)
@@ -33,9 +34,21 @@ extern "C" {
 #define M_ENUM(ENUM_LUASTATE, ENUM_INDEX, ENUM_NAME) M_FIELDSET(ENUM_LUASTATE, integer, ENUM_INDEX, #ENUM_NAME, ENUM_NAME) M_TABLESET(ENUM_LUASTATE,integer,string,ENUM_INDEX,ENUM_NAME,#ENUM_NAME)
 #define M_RETURN(RETURN_LUASTATE, RETURN_NUM) lua_pushinteger( RETURN_LUASTATE , BASS_ErrorGetCode() ); \
 	return RETURN_NUM + 1;
+
+typedef struct {
+	HSYNC handle;
+	DWORD channel;
+	DWORD data;
+} SyncEventData;
+
 extern "C" {
 	int LUA_API luaopen_LuaBASS (lua_State *L);
 }
+
+HANDLE SyncMutex;
+SyncEventData EventDataList[1024];
+int NextEmptyEDLIndex = 0;
+
 static int GetDeviceCount(lua_State *L) {
 	int a, count=0;
 	BASS_DEVICEINFO Info;
@@ -45,8 +58,42 @@ static int GetDeviceCount(lua_State *L) {
 	lua_pushinteger(L,count);
 	return 1;
 }
+static int Flags(lua_State *L) {
+	int NumFlags = lua_gettop(L);
+	int FlagAccum = 0;
+	printf("%d\n",NumFlags);
+	for (int i = 1; i <= NumFlags; i++) {
+		FlagAccum = FlagAccum | lua_tointeger(L,i);
+		printf("%d %d\n",FlagAccum,lua_tointeger(L,i));
+	}
+	lua_pushinteger(L,FlagAccum);
+	return 1;
+}
+static int GetSyncEventList(lua_State *L) {
+	DWORD WaitResult = WaitForSingleObject(SyncMutex,INFINITE);
+	lua_newtable(L); //return table
+	for (int i = 0; i < NextEmptyEDLIndex; i++)
+	{
+		SyncEventData EventData = EventDataList[i];
+		lua_pushinteger(L,i);
+		lua_newtable(L); //EventData table
+		M_FIELDSET(L,integer,-1,"handle",EventData.handle)
+		M_FIELDSET(L,integer,-1,"channel",EventData.channel)
+		M_FIELDSET(L,integer,-1,"data",EventData.data)
+		lua_settable(L,-3);
+	}
+	NextEmptyEDLIndex = 0;
+	ReleaseMutex(SyncMutex);
+	return 1;
+}
 void CALLBACK SyncDispatcher(HSYNC handle, DWORD channel, DWORD data, void *user)
 {
+	DWORD WaitResult = WaitForSingleObject(SyncMutex,INFINITE);
+	SyncEventData EventData = {handle,channel,data};
+	EventDataList[NextEmptyEDLIndex] = EventData;
+	NextEmptyEDLIndex++;
+	ReleaseMutex(SyncMutex);
+	/*
 	lua_State *L = (lua_State*) user;
 	lua_getfield(L,LUA_GLOBALSINDEX,"package");
 	lua_getfield(L,-1,"loaded");
@@ -60,7 +107,7 @@ void CALLBACK SyncDispatcher(HSYNC handle, DWORD channel, DWORD data, void *user
 		lua_pushinteger(L,channel);
 		lua_pushinteger(L,data);
 		lua_call(L,3,0);
-	}
+	}*/
 }
 static int Init(lua_State *L) {
 	lua_pushboolean(L,BASS_Init(lua_tointeger(L,1),lua_tointeger(L,2),lua_tointeger(L,3),0,0));
@@ -188,7 +235,7 @@ static int ChannelPause(lua_State *L) {
 }
 
 static int ChannelSetSync(lua_State *L) {
-	lua_pushinteger(L,BASS_ChannelSetSync(lua_tointeger(L,1),lua_tointeger(L,2),lua_tointeger(L,3), &SyncDispatcher,L));
+	lua_pushinteger(L,BASS_ChannelSetSync(lua_tointeger(L,1),lua_tointeger(L,2),lua_tointeger(L,3), &SyncDispatcher,NULL));
 	M_RETURN(L,1)
 }
 
@@ -208,6 +255,7 @@ static int ChannelBytes2Seconds(lua_State *L) {
 }
 
 int LUA_API luaopen_LuaBASS (lua_State *L) {
+	SyncMutex = CreateMutex(NULL,FALSE,NULL);
 	struct luaL_reg driver[] = {
 		M_EXPORT(Free)
 		M_EXPORT(GetDevice)
@@ -230,6 +278,8 @@ int LUA_API luaopen_LuaBASS (lua_State *L) {
 		M_EXPORT(ChannelGetPosition)
 		M_EXPORT(ChannelGetLength)
 		M_EXPORT(ChannelBytes2Seconds)
+		M_EXPORT(Flags)
+		M_EXPORT(GetSyncEventList)
 		{NULL, NULL},
 	};
 	luaL_register (L, "LuaBASS", driver);
@@ -284,6 +334,14 @@ int LUA_API luaopen_LuaBASS (lua_State *L) {
 	M_ENUM(L,-1,BASS_STREAM_AUTOFREE)
 	M_ENUM(L,-1,BASS_STREAM_DECODE)
 	lua_setfield(L,-2,"STREAM");
+	lua_newtable(L); //SAMPLE
+	M_ENUM(L,-1,BASS_SAMPLE_FLOAT)
+	M_ENUM(L,-1,BASS_SAMPLE_MONO)
+	M_ENUM(L,-1,BASS_SAMPLE_SOFTWARE)
+	M_ENUM(L,-1,BASS_SAMPLE_3D)
+	M_ENUM(L,-1,BASS_SAMPLE_LOOP)
+	M_ENUM(L,-1,BASS_SAMPLE_FX)
+	lua_setfield(L,-2,"SAMPLE");
 	lua_newtable(L); //MISC
 	M_ENUM(L,-1,BASS_UNICODE)
 	lua_setfield(L,-2,"MISC");
